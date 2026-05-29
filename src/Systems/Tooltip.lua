@@ -59,7 +59,7 @@ return function(require)
 		target.MouseEnter:Connect(function()
 			hovered = true
 			task.delay(SHOW_DELAY, function()
-				if not hovered then
+				if not hovered or not self._tip or not self._tip.Parent then
 					return
 				end
 				self._label.Text = text

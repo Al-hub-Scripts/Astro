@@ -4,7 +4,6 @@
 return function(require)
 	local Utils = require("Utils")
 	local Animations = require("Animations")
-	local UserInputService = game:GetService("UserInputService")
 
 	local Search = {}
 	Search.__index = Search

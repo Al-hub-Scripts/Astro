@@ -913,6 +913,7 @@ return function(require)
 			Position = UDim2.new(sidebarFrac, 1, 0, 0),
 			Size = UDim2.new(1 - sidebarFrac, -1, 1, 0),
 			BackgroundTransparency = 1,
+			ClipsDescendants = true, -- contain the page drift-in/out
 			Parent = body,
 		})
 		self._contentContainer = contentContainer

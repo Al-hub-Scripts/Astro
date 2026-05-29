@@ -9,7 +9,7 @@ return function(require)
 		local maid = ctx.maid
 
 		local base = Utils.element(theme, parent, { name = config.Name or "Button", labelWidth = 1 })
-		local root, label, stroke = base.root, base.label, base.stroke
+		local root, stroke = base.root, base.stroke
 		root.Name = "Button"
 		local scaler = Utils.scaler(root, 1)
 
