@@ -47,8 +47,16 @@ return function(require)
 				knob.Position = knobPos
 				track.BackgroundColor3 = trackColor
 			else
-				Animations.tween(knob, "Toggle", { Position = knobPos })
+				-- knob springs across with a soft Back overshoot; track crossfades.
+				-- a quick squash-stretch (wider mid-glide) adds life without bounce.
+				Animations.tween(knob, "Pop", { Position = knobPos })
 				Animations.tween(track, "Toggle", { BackgroundColor3 = trackColor })
+				knob.Size = UDim2.fromOffset(KNOB + 4, KNOB - 2)
+				task.delay(0.12, function()
+					if knob.Parent then
+						Animations.tween(knob, "Pop", { Size = UDim2.fromOffset(KNOB, KNOB) })
+					end
+				end)
 			end
 		end
 		apply(false)

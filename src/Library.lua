@@ -480,23 +480,23 @@ return function(require)
 	function Window:createPopup(anchor, size, opts)
 		opts = opts or {}
 		local theme = self.theme
-		local frame = create("CanvasGroup", {
+
+		-- Outer holder is a plain (non-clipping) Frame so the drop shadow can
+		-- spill past the card. The card itself is a CanvasGroup (clips content +
+		-- gives us GroupTransparency for the fade). We scale the holder so both
+		-- shadow and card bloom together.
+		local holder = create("Frame", {
 			Name = "Popup",
 			Size = size,
-			BackgroundColor3 = theme:get("Elevated"),
-			GroupTransparency = 1,
+			BackgroundTransparency = 1,
 			Visible = false,
 			ZIndex = 6,
 			Parent = self._overlay,
 		})
-		theme:register(frame, { BackgroundColor3 = "Elevated" })
-		Utils.corner(frame, theme:size("ElementCorner"))
-		local pstroke = Utils.stroke(frame, theme:get("Stroke"), theme:size("StrokeThickness"))
-		theme:register(pstroke, { Color = "Stroke" })
-		local pscale = Utils.scaler(frame, 0.82)
+		local pscale = Utils.scaler(holder, 0.82)
 
 		-- soft drop shadow so the popup clearly floats above the panel
-		local pshadow = create("ImageLabel", {
+		create("ImageLabel", {
 			Name = "PopupShadow",
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
@@ -506,14 +506,28 @@ return function(require)
 			ImageColor3 = theme:get("Shadow"),
 			ImageTransparency = 0.4,
 			ZIndex = 5,
-			Parent = frame,
+			Parent = holder,
 		})
 
-		local state = { frame = frame, scaler = pscale, anchor = anchor, _open = false }
+		local frame = create("CanvasGroup", {
+			Name = "Card",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = theme:get("Elevated"),
+			GroupTransparency = 1,
+			ZIndex = 6,
+			Parent = holder,
+		})
+		theme:register(frame, { BackgroundColor3 = "Elevated" })
+		Utils.corner(frame, theme:size("ElementCorner"))
+		local pstroke = Utils.stroke(frame, theme:get("Stroke"), theme:size("StrokeThickness"))
+		theme:register(pstroke, { Color = "Stroke" })
 
-		-- Position the popup just under (or above, if no room) the anchor,
-		-- in root-local space, and set the UIScale pivot toward the anchor so it
-		-- visually grows out of it.
+		-- state.frame is the CARD (components parent content here); the click-
+		-- outside test uses the holder bounds via state.holder.
+		local state = { frame = frame, holder = holder, scaler = pscale, anchor = anchor, _open = false }
+
+		-- Position the holder just under (or above, if no room) the anchor, in
+		-- root-local space, so it visually drops out of the element.
 		local function place()
 			local rootPos = self._root.AbsolutePosition
 			local aPos = anchor.AbsolutePosition
@@ -524,14 +538,11 @@ return function(require)
 			local winH = self._root.AbsoluteSize.Y
 			if py + size.Y.Offset > winH - 4 and (aPos.Y - rootPos.Y - size.Y.Offset - 6) > 0 then
 				py = aPos.Y - rootPos.Y - size.Y.Offset - 6
-				pscale.Pivot = Vector2.new(0.5, 1)
-			else
-				pscale.Pivot = Vector2.new(0.5, 0)
 			end
 			-- keep within the window horizontally
 			local winW = self._root.AbsoluteSize.X
 			px = math.clamp(px, 4, math.max(4, winW - size.X.Offset - 4))
-			frame.Position = UDim2.fromOffset(px, py)
+			holder.Position = UDim2.fromOffset(px, py)
 		end
 
 		function state.open()
@@ -542,7 +553,12 @@ return function(require)
 			self:closePopups(state)
 			state._open = true
 			place()
-			Animations.bloomIn(frame, pscale)
+			-- bloom: scale the holder (shadow + card together) + fade the card
+			holder.Visible = true
+			pscale.Scale = 0.82
+			frame.GroupTransparency = 1
+			Animations.tween(pscale, "Bloom", { Scale = 1 })
+			Animations.tween(frame, "Bloom", { GroupTransparency = 0 })
 			if opts.onOpen then
 				opts.onOpen()
 			end
@@ -559,10 +575,16 @@ return function(require)
 				opts.onClose()
 			end
 			if skipAnim then
-				frame.Visible = false
+				holder.Visible = false
 				return
 			end
-			Animations.bloomOut(frame, pscale)
+			Animations.tween(pscale, "Dissolve", { Scale = 0.9 })
+			local tw = Animations.tween(frame, "Dissolve", { GroupTransparency = 1 })
+			tw.Completed:Connect(function()
+				if not state._open then
+					holder.Visible = false
+				end
+			end)
 		end
 
 		function state.isOpen()
@@ -1200,15 +1222,18 @@ return function(require)
 			if not next(self._openPopups) then
 				return
 			end
+			-- GetMouseLocation() excludes the GUI inset; our ScreenGui uses
+			-- IgnoreGuiInset, so AbsolutePosition is in full-screen space — add
+			-- the inset back to compare in the same coordinate space.
 			local m = UserInputService:GetMouseLocation()
-			local guiInset = game:GetService("GuiService"):GetGuiInset()
-			local point = Vector2.new(m.X, m.Y - guiInset.Y)
+			local inset = game:GetService("GuiService"):GetGuiInset()
+			local point = Vector2.new(m.X, m.Y + inset.Y)
 			local function inside(inst)
 				local p, s = inst.AbsolutePosition, inst.AbsoluteSize
 				return point.X >= p.X and point.X <= p.X + s.X and point.Y >= p.Y and point.Y <= p.Y + s.Y
 			end
 			for state in pairs(self._openPopups) do
-				local hitPopup = state.frame and state.frame.Visible and inside(state.frame)
+				local hitPopup = state.holder and state.holder.Visible and inside(state.holder)
 				local hitAnchor = state.anchor and inside(state.anchor)
 				if not hitPopup and not hitAnchor then
 					state.close()
