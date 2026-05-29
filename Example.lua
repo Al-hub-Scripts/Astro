@@ -4,7 +4,7 @@
 
     Load (executor):
         local Astro = loadstring(game:HttpGet(
-            "https://raw.githubusercontent.com/al-hub-scripts/astro/main/Loader.lua"))()
+            "https://raw.githubusercontent.com/Al-hub-Scripts/Astro/refs/heads/main/Loader.lua"))()
 
     Load (Roblox Studio, no HTTP):
         local Astro = require(path.to.Astrophysics) -- the src/ ModuleScript
@@ -16,7 +16,7 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
-local Astro = loadstring(game:HttpGet("https://raw.githubusercontent.com/al-hub-scripts/astro/main/Loader.lua"))()
+local Astro = loadstring(game:HttpGet("https://raw.githubusercontent.com/Al-hub-Scripts/Astro/refs/heads/main/Loader.lua"))()
 
 local Window = Astro:CreateWindow({
 	Title = "Astro",

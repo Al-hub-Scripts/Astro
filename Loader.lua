@@ -12,7 +12,7 @@
 --  EDIT THIS — point it at your repo + the branch/tag you want to pin to.
 --  Must end with a trailing slash. Files are read from "<BASE_URL>src/<name>.lua".
 -- ===========================================================================
-local BASE_URL = "https://raw.githubusercontent.com/al-hub-scripts/astro/main/"
+local BASE_URL = "https://raw.githubusercontent.com/Al-hub-Scripts/Astro/refs/heads/main/"
 -- ===========================================================================
 
 -- Every module's relative name (used for both the URL and the require key).
