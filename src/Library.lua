@@ -515,6 +515,14 @@ return function(require)
 		end
 	end
 
+	-- Rebind the global show/hide key (used by the Settings tab).
+	function Window:SetToggleKey(keycode)
+		if keycode and keycode ~= Enum.KeyCode.Unknown then
+			self.toggleKey = keycode
+			self._keybinds:setToggleKey(keycode)
+		end
+	end
+
 	function Window:_setMinimized(state)
 		self._minimized = state
 		local size = state and UDim2.fromOffset(self.theme:size("WindowSize").X.Offset, self.theme:size("TopBarHeight"))
@@ -529,6 +537,13 @@ return function(require)
 	function Window:Notify(options)
 		if self._notifier then
 			self._notifier:Notify(options)
+		end
+	end
+
+	-- Update the footer status text.
+	function Window:SetStatus(text)
+		if self._status then
+			self._status.Text = tostring(text or "")
 		end
 	end
 

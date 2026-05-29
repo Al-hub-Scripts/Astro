@@ -66,6 +66,10 @@ return function(require)
 					ctx.keybinds:unbind(id)
 				end
 			end
+			-- Fired when the bound key changes (e.g. to rebind the window toggle).
+			if config.OnChanged then
+				task.spawn(config.OnChanged, keycode)
+			end
 		end
 
 		-- initial bind

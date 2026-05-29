@@ -160,12 +160,13 @@ return function(require)
 			local row = Utils.create("TextButton", {
 				Name = "Opt_" .. tostring(opt),
 				Size = UDim2.new(1, 0, 0, OPTION_H),
-				BackgroundColor3 = theme:get("Background"),
+				BackgroundColor3 = theme:get("ElevatedHover"),
 				BackgroundTransparency = 1,
 				Text = "",
 				AutoButtonColor = false,
 				Parent = listScroll,
 			})
+			theme:register(row, { BackgroundColor3 = "ElevatedHover" })
 			Utils.corner(row, UDim.new(0, 6))
 			local box = Utils.create("Frame", {
 				Name = "Box",
