@@ -13,6 +13,8 @@ return function(require)
 	local Animations = require("Animations")
 	local Theme = require("Theme")
 
+	local UserInputService = game:GetService("UserInputService")
+
 	local Dragger = require("Systems/Dragger")
 	local Notifications = require("Systems/Notifications")
 	local ConfigManager = require("Systems/ConfigManager")
@@ -471,7 +473,140 @@ return function(require)
 		end
 	end
 
+	-- ---------------- floating popups ----------------
+	-- Build a floating popup that blooms out over the GUI from an anchor element.
+	-- Returns { frame, scaler, open(), close(), isOpen() }. The component fills
+	-- `frame` with its content. Only one popup is open at a time.
+	function Window:createPopup(anchor, size, opts)
+		opts = opts or {}
+		local theme = self.theme
+
+		-- Outer holder is a plain (non-clipping) Frame so the drop shadow can
+		-- spill past the card. The card itself is a CanvasGroup (clips content +
+		-- gives us GroupTransparency for the fade). We scale the holder so both
+		-- shadow and card bloom together.
+		local holder = create("Frame", {
+			Name = "Popup",
+			Size = size,
+			BackgroundTransparency = 1,
+			Visible = false,
+			ZIndex = 6,
+			Parent = self._overlay,
+		})
+		local pscale = Utils.scaler(holder, 0.82)
+
+		-- soft drop shadow so the popup clearly floats above the panel
+		create("ImageLabel", {
+			Name = "PopupShadow",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.new(1, 46, 1, 46),
+			BackgroundTransparency = 1,
+			Image = SHADOW_ASSET,
+			ImageColor3 = theme:get("Shadow"),
+			ImageTransparency = 0.4,
+			ZIndex = 5,
+			Parent = holder,
+		})
+
+		local frame = create("CanvasGroup", {
+			Name = "Card",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = theme:get("Elevated"),
+			GroupTransparency = 1,
+			ZIndex = 6,
+			Parent = holder,
+		})
+		theme:register(frame, { BackgroundColor3 = "Elevated" })
+		Utils.corner(frame, theme:size("ElementCorner"))
+		local pstroke = Utils.stroke(frame, theme:get("Stroke"), theme:size("StrokeThickness"))
+		theme:register(pstroke, { Color = "Stroke" })
+
+		-- state.frame is the CARD (components parent content here); the click-
+		-- outside test uses the holder bounds via state.holder.
+		local state = { frame = frame, holder = holder, scaler = pscale, anchor = anchor, _open = false }
+
+		-- Position the holder just under (or above, if no room) the anchor, in
+		-- root-local space, so it visually drops out of the element.
+		local function place()
+			local rootPos = self._root.AbsolutePosition
+			local aPos = anchor.AbsolutePosition
+			local aSize = anchor.AbsoluteSize
+			local px = aPos.X - rootPos.X
+			local py = aPos.Y - rootPos.Y + aSize.Y + 6
+			-- flip above if it would overflow the bottom of the window
+			local winH = self._root.AbsoluteSize.Y
+			if py + size.Y.Offset > winH - 4 and (aPos.Y - rootPos.Y - size.Y.Offset - 6) > 0 then
+				py = aPos.Y - rootPos.Y - size.Y.Offset - 6
+			end
+			-- keep within the window horizontally
+			local winW = self._root.AbsoluteSize.X
+			px = math.clamp(px, 4, math.max(4, winW - size.X.Offset - 4))
+			holder.Position = UDim2.fromOffset(px, py)
+		end
+
+		function state.open()
+			if state._open then
+				return
+			end
+			-- close any other open popup first
+			self:closePopups(state)
+			state._open = true
+			place()
+			-- bloom: scale the holder (shadow + card together) + fade the card
+			holder.Visible = true
+			pscale.Scale = 0.82
+			frame.GroupTransparency = 1
+			Animations.tween(pscale, "Bloom", { Scale = 1 })
+			Animations.tween(frame, "Bloom", { GroupTransparency = 0 })
+			if opts.onOpen then
+				opts.onOpen()
+			end
+			self._openPopups[state] = true
+		end
+
+		function state.close(skipAnim)
+			if not state._open then
+				return
+			end
+			state._open = false
+			self._openPopups[state] = nil
+			if opts.onClose then
+				opts.onClose()
+			end
+			if skipAnim then
+				holder.Visible = false
+				return
+			end
+			Animations.tween(pscale, "Dissolve", { Scale = 0.9 })
+			local tw = Animations.tween(frame, "Dissolve", { GroupTransparency = 1 })
+			tw.Completed:Connect(function()
+				if not state._open then
+					holder.Visible = false
+				end
+			end)
+		end
+
+		function state.isOpen()
+			return state._open
+		end
+
+		return state
+	end
+
+	-- Close every open popup (optionally excluding one).
+	function Window:closePopups(except)
+		for state in pairs(self._openPopups) do
+			if state ~= except then
+				state.close()
+			end
+		end
+	end
+
 	-- ---------------- visibility / lifecycle ----------------
+	-- OPEN: the window blooms outward — scales up past 1 and settles (Back),
+	-- while the shadow spreads from tight-to-wide so it reads as lifting off the
+	-- desktop. Deliberately not the universal fade-from-0.96.
 	function Window:Show(skipAnim)
 		if self._destroyed then
 			return
@@ -482,27 +617,39 @@ return function(require)
 			self._window.GroupTransparency = 0
 			self._scale.Scale = 1
 			self._shadow.ImageTransparency = 0.45
+			self._shadow.Size = UDim2.new(1, 70, 1, 70)
 			return
 		end
 		self._window.GroupTransparency = 1
-		self._scale.Scale = 0.96
+		self._scale.Scale = 0.82
 		self._shadow.ImageTransparency = 1
-		Animations.tween(self._window, "WindowOpen", { GroupTransparency = 0 })
-		Animations.tween(self._scale, "WindowOpen", { Scale = 1 })
-		Animations.tween(self._shadow, "WindowOpen", { ImageTransparency = 0.45 })
+		self._shadow.Size = UDim2.new(1, 20, 1, 20) -- tight → spreads out
+		Animations.tween(self._window, "Bloom", { GroupTransparency = 0 })
+		Animations.tween(self._scale, "Bloom", { Scale = 1 }) -- Back = settle overshoot
+		Animations.tween(self._shadow, "Bloom", { ImageTransparency = 0.45, Size = UDim2.new(1, 70, 1, 70) })
 	end
 
+	-- CLOSE: evaporates — sinks downward + shrinks + fades while the shadow
+	-- collapses inward. A distinct gesture from open, not a rewound bloom.
 	function Window:Hide()
 		if self._destroyed or not self._visible then
 			return
 		end
 		self._visible = false
-		Animations.tween(self._window, "WindowClose", { GroupTransparency = 1 })
-		Animations.tween(self._shadow, "WindowClose", { ImageTransparency = 1 })
-		local tw = Animations.tween(self._scale, "WindowClose", { Scale = 0.96 })
-		tw.Completed:Connect(function()
+		self:closePopups()
+		-- remember where it was (drag-aware) so we can sink + restore exactly.
+		local home = self._root.Position
+		self._restorePosition = home
+		Animations.tween(self._window, "Dissolve", { GroupTransparency = 1 })
+		Animations.tween(self._shadow, "Dissolve", { ImageTransparency = 1, Size = UDim2.new(1, 20, 1, 20) })
+		Animations.tween(self._root, "Dissolve", {
+			Position = home + UDim2.fromOffset(0, 26),
+		})
+		Animations.tween(self._scale, "Dissolve", { Scale = 0.9 })
+		task.delay(0.34, function()
 			if not self._visible then
 				self._root.Visible = false
+				self._root.Position = self._restorePosition -- reset for next open
 			end
 		end)
 	end
@@ -523,11 +670,29 @@ return function(require)
 		end
 	end
 
+	-- MINIMIZE: a window-shade fold. The window CanvasGroup clips, so as the root
+	-- height collapses to the title bar the body rolls up out of view; we slide
+	-- the body up under the bar and tuck the footer below so the whole thing
+	-- "sucks up" into the title bar instead of just shrinking. The minimize
+	-- glyph also morphs to a restore glyph (handled by the caller).
 	function Window:_setMinimized(state)
 		self._minimized = state
-		local size = state and UDim2.fromOffset(self.theme:size("WindowSize").X.Offset, self.theme:size("TopBarHeight"))
-			or self.theme:size("WindowSize")
-		Animations.tween(self._root, "Expand", { Size = size })
+		self:closePopups()
+		local theme = self.theme
+		local full = theme:size("WindowSize")
+		local topH = theme:size("TopBarHeight")
+
+		if state then
+			Animations.tween(self._body, "Fold", { Position = UDim2.new(0, 0, 0, topH + 1 - 18) })
+			Animations.tween(self._footer, "Fold", { Position = UDim2.new(0, 0, 1, 30) })
+			Animations.tween(self._root, "Fold", { Size = UDim2.fromOffset(full.X.Offset, topH) })
+			Animations.tween(self._shadow, "Fold", { Size = UDim2.new(1, 50, 1, 50) })
+		else
+			Animations.tween(self._body, "Fold", { Position = UDim2.new(0, 0, 0, topH + 1) })
+			Animations.tween(self._footer, "Fold", { Position = UDim2.fromScale(0, 1) })
+			Animations.tween(self._root, "Fold", { Size = full })
+			Animations.tween(self._shadow, "Fold", { Size = UDim2.new(1, 70, 1, 70) })
+		end
 	end
 
 	function Window:Minimize()
@@ -656,6 +821,21 @@ return function(require)
 		theme:register(window, { BackgroundColor3 = "Background" })
 		theme:register(winStroke, { Color = "Stroke" })
 		self._window = window
+
+		-- Overlay layer: a NON-clipped sibling of the window (child of root) that
+		-- hosts floating popups (dropdowns, colour pickers). Because it lives on
+		-- root it tracks the window during drag, and because it sits above the
+		-- window CanvasGroup the popups can spill past the panel edges — that's
+		-- what makes them "pop out of the GUI" instead of pushing the page.
+		local overlay = create("Frame", {
+			Name = "Overlay",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			ZIndex = 5,
+			Parent = root,
+		})
+		self._overlay = overlay
+		self._openPopups = {}
 
 		local sidebarFrac = theme:size("SidebarWidth")
 		local topH = theme:size("TopBarHeight")
@@ -804,8 +984,16 @@ return function(require)
 			handle.Position = UDim2.new(0.5, 4, 0.5, 4)
 		end, 1)
 
+		-- Minimize glyph: a bottom bar (the "shade") + a top bar that's hidden
+		-- when expanded. On minimize the two bars converge into a restore-style
+		-- "=" so the icon itself tells the current state.
+		local minBottom, minTop
 		local minBtn = controlButton("Minimize", function(glyph)
-			bar(glyph, 12, 2, 0).Position = UDim2.fromScale(0.5, 0.62)
+			minBottom = bar(glyph, 12, 2, 0)
+			minBottom.Position = UDim2.fromScale(0.5, 0.62)
+			minTop = bar(glyph, 12, 2, 0)
+			minTop.Position = UDim2.fromScale(0.5, 0.38)
+			minTop.BackgroundTransparency = 1 -- hidden until minimized
 		end, 2)
 
 		local closeBtn = controlButton("Close", function(glyph)
@@ -818,6 +1006,17 @@ return function(require)
 		end)
 		minBtn.MouseButton1Click:Connect(function()
 			self:Minimize()
+			-- morph glyph: minimized → two stacked bars (restore), expanded → one low bar
+			if minTop and minBottom then
+				local minimized = self._minimized
+				Animations.tween(minTop, "Fold", {
+					BackgroundTransparency = minimized and 0 or 1,
+					Position = minimized and UDim2.fromScale(0.5, 0.42) or UDim2.fromScale(0.5, 0.38),
+				})
+				Animations.tween(minBottom, "Fold", {
+					Position = minimized and UDim2.fromScale(0.5, 0.58) or UDim2.fromScale(0.5, 0.62),
+				})
+			end
 		end)
 		-- Close turns red on hover to read as destructive-ish.
 		closeBtn.MouseEnter:Connect(function()
@@ -876,6 +1075,7 @@ return function(require)
 			BackgroundTransparency = 1,
 			Parent = window,
 		})
+		self._body = body
 
 		local sidebar = create("Frame", {
 			Name = "Sidebar",
@@ -927,6 +1127,7 @@ return function(require)
 			BorderSizePixel = 0,
 			Parent = window,
 		})
+		self._footer = footer
 		theme:register(footer, { BackgroundColor3 = "SidebarBg" })
 		local footDivider = create("Frame", {
 			Size = UDim2.new(1, 0, 0, 1),
@@ -1004,7 +1205,41 @@ return function(require)
 			notify = function(o)
 				self:Notify(o)
 			end,
+			-- floating popup host (dropdowns / colour pickers pop out over the GUI)
+			createPopup = function(anchor, size, opts)
+				return self:createPopup(anchor, size, opts)
+			end,
 		}
+
+		-- Click-outside-to-close for floating popups. One global listener checks
+		-- whether a press landed inside any open popup (or its anchor); if not,
+		-- it closes them. Anchors guard their own toggles so this won't fight a
+		-- click that's reopening the same popup.
+		maid:give(UserInputService.InputBegan:Connect(function(input)
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+				return
+			end
+			if not next(self._openPopups) then
+				return
+			end
+			-- GetMouseLocation() excludes the GUI inset; our ScreenGui uses
+			-- IgnoreGuiInset, so AbsolutePosition is in full-screen space — add
+			-- the inset back to compare in the same coordinate space.
+			local m = UserInputService:GetMouseLocation()
+			local inset = game:GetService("GuiService"):GetGuiInset()
+			local point = Vector2.new(m.X, m.Y + inset.Y)
+			local function inside(inst)
+				local p, s = inst.AbsolutePosition, inst.AbsoluteSize
+				return point.X >= p.X and point.X <= p.X + s.X and point.Y >= p.Y and point.Y <= p.Y + s.Y
+			end
+			for state in pairs(self._openPopups) do
+				local hitPopup = state.holder and state.holder.Visible and inside(state.holder)
+				local hitAnchor = state.anchor and inside(state.anchor)
+				if not hitPopup and not hitAnchor then
+					state.close()
+				end
+			end
+		end))
 
 		-- Dragger — the canonical motion. Bound to the top bar.
 		Dragger({ window = root, handle = topbar, maid = maid })

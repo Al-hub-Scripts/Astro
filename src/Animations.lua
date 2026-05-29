@@ -34,6 +34,19 @@ return function(_require)
 		Notify = ti(0.45, E.Quart),
 		Color = ti(0.30, E.Quad), -- live theme-swap crossfade
 		Glow = ti(0.45, E.Quad), -- search highlight pulse out
+
+		-- Distinctive presets — the "cloud" motion language.
+		-- Back/Out has a fixed overshoot; we only apply it to SMALL deltas
+		-- (scale 0.85→1, knob +4px) so it reads as a gentle settle/pop, never a
+		-- cartoon bounce. This is the signature that separates us from the
+		-- universal fade-scale.
+		Bloom = ti(0.52, E.Back), -- popups + window open: spring/bloom outward
+		Pop = ti(0.26, E.Back), -- knob grab, value label, swatch micro-pops
+		Fold = ti(0.46, E.Quart), -- minimize: vertical fold
+		Dissolve = ti(0.34, E.Quad), -- close / popup-out: evaporate
+		SliderKnob = ti(0.10, E.Quad), -- knob: snappy follow under the cursor
+		SliderFill = ti(0.40, E.Quart), -- fill: trails the knob → layered, floaty
+		Drift = ti(0.60, E.Quad), -- long soft positional drifts
 	}
 
 	-- Resolve a preset name OR a literal TweenInfo (so callers may pass either).
@@ -75,6 +88,57 @@ return function(_require)
 				Animations.tween(stroke, "Glow", { Transparency = rest, Thickness = 1 })
 			end
 		end)
+	end
+
+	-- Stagger children into place: each child drifts up + fades on a tiny
+	-- escalating delay so a freshly-populated list/popup "cascades" in rather
+	-- than appearing all at once. This is a big part of the unique feel.
+	-- `items` = array of { inst, from? (UDim2 offset), props? }.
+	function Animations.cascade(items, step, infoName)
+		step = step or 0.035
+		for i, item in ipairs(items) do
+			local inst = item.inst or item
+			if inst and inst.Parent then
+				local restPos = inst.Position
+				inst.Position = restPos + (item.from or UDim2.fromOffset(0, 10))
+				if inst:IsA("CanvasGroup") then
+					inst.GroupTransparency = 1
+				end
+				task.delay((i - 1) * step, function()
+					if not inst.Parent then
+						return
+					end
+					Animations.tween(inst, infoName or "Bloom", { Position = restPos })
+					if inst:IsA("CanvasGroup") then
+						Animations.tween(inst, infoName or "Bloom", { GroupTransparency = 0 })
+					end
+				end)
+			end
+		end
+	end
+
+	-- Floating popup bloom-in: a CanvasGroup popup scales from a pivot + fades.
+	-- Uses a UIScale so the bloom doesn't disturb layout. `originScale` lets it
+	-- look like it grew out of its anchor element.
+	function Animations.bloomIn(popup, scaler)
+		scaler.Scale = 0.82
+		popup.GroupTransparency = 1
+		popup.Visible = true
+		Animations.tween(scaler, "Bloom", { Scale = 1 })
+		Animations.tween(popup, "Bloom", { GroupTransparency = 0 })
+	end
+
+	-- Reverse: evaporate the popup (scale down slightly + fade), hide on done.
+	function Animations.bloomOut(popup, scaler, onDone)
+		Animations.tween(scaler, "Dissolve", { Scale = 0.9 })
+		local tw = Animations.tween(popup, "Dissolve", { GroupTransparency = 1 })
+		tw.Completed:Connect(function()
+			popup.Visible = false
+			if onDone then
+				onDone()
+			end
+		end)
+		return tw
 	end
 
 	return Animations

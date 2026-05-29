@@ -1,6 +1,7 @@
---[[ Dropdown — single or multi select. Soft inline unfold: the row's own height
-     eases open to reveal a (scrolling, if long) option list, so the page's
-     AutomaticCanvasSize just flows around it. Multi shows filled checkboxes. ]]
+--[[ Dropdown — single or multi select. The option list POPS OUT of the GUI as a
+     floating panel (via the window's popup layer) that blooms from the header
+     and CASCADES its rows in one-by-one, instead of pushing the page open.
+     Multi shows filled checkboxes. Falls back to inline expand with no popup. ]]
 return function(require)
 	local Utils = require("Utils")
 	local Animations = require("Animations")
@@ -28,19 +29,10 @@ return function(require)
 			return arr
 		end
 
+		-- ---------- header row (always visible) ----------
 		local base = Utils.element(theme, parent, { name = config.Name or "Dropdown", labelWidth = 0.4 })
 		local root, stroke = base.root, base.stroke
 		root.Name = "Dropdown"
-		root.ClipsDescendants = true
-		root.AutomaticSize = Enum.AutomaticSize.None
-
-		local header = Utils.create("Frame", {
-			Name = "Header",
-			Size = UDim2.new(1, 0, 0, theme:size("ElementHeight")),
-			BackgroundTransparency = 1,
-			Parent = root,
-		})
-		base.label.Parent = header
 
 		local chevron = Utils.create("TextLabel", {
 			Name = "Chevron",
@@ -52,7 +44,7 @@ return function(require)
 			Rotation = 90, -- points down when collapsed
 			Font = Enum.Font.GothamBold,
 			TextSize = 16,
-			Parent = header,
+			Parent = root,
 		})
 		theme:register(chevron, { TextColor3 = "TextMuted" })
 
@@ -67,25 +59,81 @@ return function(require)
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			TextTruncate = Enum.TextTruncate.AtEnd,
-			Parent = header,
+			Parent = root,
 		})
 		theme:register(valueText, { TextColor3 = "TextMuted" })
 
-		-- Options area (revealed on expand).
-		local listScroll = Utils.create("ScrollingFrame", {
-			Name = "Options",
-			Position = UDim2.new(0, 0, 0, theme:size("ElementHeight")),
-			Size = UDim2.new(1, 0, 1, -theme:size("ElementHeight")),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ScrollBarThickness = 3,
-			ScrollBarImageColor3 = theme:get("TextMuted"),
-			CanvasSize = UDim2.new(),
-			AutomaticCanvasSize = Enum.AutomaticSize.Y,
-			Parent = root,
-		})
-		Utils.padding(listScroll, { top = 2, bottom = 6, left = 8, right = 8 })
-		Utils.layout(listScroll, Enum.FillDirection.Vertical, 3)
+		local handle = { Instance = root, Name = config.Name or "Dropdown", Type = "Dropdown" }
+		handle._highlightStroke = stroke
+
+		-- ---------- popup body that holds the option list ----------
+		local function popupHeight()
+			local visible = math.min(math.max(#options, 1), MAX_VISIBLE)
+			return visible * (OPTION_H + 3) + 13
+		end
+
+		local hasPopup = ctx.createPopup ~= nil
+		local popup, listScroll
+
+		local function rowsForCascade()
+			local items = {}
+			for _, child in ipairs(listScroll:GetChildren()) do
+				if child:IsA("TextButton") then
+					table.insert(items, { inst = child, from = UDim2.fromOffset(0, 8) })
+				end
+			end
+			-- keep layout order stable
+			table.sort(items, function(a, b)
+				return a.inst.LayoutOrder < b.inst.LayoutOrder
+			end)
+			return items
+		end
+
+		if hasPopup then
+			popup = ctx.createPopup(root, UDim2.fromOffset(220, popupHeight()), {
+				onOpen = function()
+					Animations.tween(chevron, "Bloom", { Rotation = 270 })
+					-- cascade the rows in for the signature feel
+					task.defer(function()
+						Animations.cascade(rowsForCascade(), 0.03, "Bloom")
+					end)
+				end,
+				onClose = function()
+					Animations.tween(chevron, "Bloom", { Rotation = 90 })
+				end,
+			})
+			listScroll = Utils.create("ScrollingFrame", {
+				Name = "Options",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ScrollBarThickness = 3,
+				ScrollBarImageColor3 = theme:get("TextMuted"),
+				CanvasSize = UDim2.new(),
+				AutomaticCanvasSize = Enum.AutomaticSize.Y,
+				Parent = popup.frame,
+			})
+			Utils.padding(listScroll, { top = 6, bottom = 6, left = 7, right = 7 })
+			Utils.layout(listScroll, Enum.FillDirection.Vertical, 3)
+		else
+			-- fallback: inline expander
+			root.ClipsDescendants = true
+			root.AutomaticSize = Enum.AutomaticSize.None
+			listScroll = Utils.create("ScrollingFrame", {
+				Name = "Options",
+				Position = UDim2.new(0, 0, 0, theme:size("ElementHeight")),
+				Size = UDim2.new(1, 0, 1, -theme:size("ElementHeight")),
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				ScrollBarThickness = 3,
+				ScrollBarImageColor3 = theme:get("TextMuted"),
+				CanvasSize = UDim2.new(),
+				AutomaticCanvasSize = Enum.AutomaticSize.Y,
+				Parent = root,
+			})
+			Utils.padding(listScroll, { top = 2, bottom = 6, left = 8, right = 8 })
+			Utils.layout(listScroll, Enum.FillDirection.Vertical, 3)
+		end
 
 		local optionRows = {}
 
@@ -112,27 +160,39 @@ return function(require)
 				else
 					Animations.tween(row.label, "Toggle", { TextColor3 = textColor })
 					Animations.tween(row.box, "Toggle", { BackgroundColor3 = boxColor })
-					Animations.tween(row.tick, "Toggle", { BackgroundTransparency = on and 0 or 1 })
+					-- tick pops in with a tiny Back overshoot
+					Animations.tween(row.tick, "Pop", { BackgroundTransparency = on and 0 or 1 })
+					row.tick.Size = on and UDim2.fromOffset(6, 6) or UDim2.fromOffset(6, 6)
 				end
 			end
 		end
 
-		local expanded = false
-		local function collapsedHeight()
-			return theme:size("ElementHeight")
-		end
+		-- ---------- open / close ----------
+		local inlineExpanded = false
 		local function expandedHeight()
 			local visible = math.min(#options, MAX_VISIBLE)
 			return theme:size("ElementHeight") + visible * (OPTION_H + 3) + 8
 		end
-		local function setExpanded(state)
-			expanded = state
-			Animations.tween(root, "Expand", { Size = UDim2.new(1, 0, 0, state and expandedHeight() or collapsedHeight()) })
-			Animations.tween(chevron, "Expand", { Rotation = state and 270 or 90 })
+		local function setOpen(state)
+			if hasPopup then
+				-- popup size may have changed (SetOptions)
+				popup.holder.Size = UDim2.fromOffset(220, popupHeight())
+				if state then
+					popup.open()
+				else
+					popup.close()
+				end
+			else
+				inlineExpanded = state
+				Animations.tween(root, "Bloom", {
+					Size = UDim2.new(1, 0, 0, state and expandedHeight() or theme:size("ElementHeight")),
+				})
+				Animations.tween(chevron, "Bloom", { Rotation = state and 270 or 90 })
+			end
 		end
-
-		local handle = { Instance = root, Name = config.Name or "Dropdown", Type = "Dropdown" }
-		handle._highlightStroke = stroke
+		local function isOpen()
+			return hasPopup and popup.isOpen() or inlineExpanded
+		end
 
 		local function commit(skipCallback)
 			refreshHeader()
@@ -152,7 +212,7 @@ return function(require)
 				end
 				selectedSet[opt] = true
 				commit(false)
-				setExpanded(false)
+				setOpen(false)
 			end
 		end
 
@@ -221,7 +281,7 @@ return function(require)
 			buildOption(opt)
 		end
 
-		-- header click toggles expansion
+		-- header click toggles the popup
 		local hit = Utils.create("TextButton", {
 			Name = "Hit",
 			Size = UDim2.fromScale(1, 1),
@@ -229,11 +289,11 @@ return function(require)
 			Text = "",
 			AutoButtonColor = false,
 			ZIndex = 2,
-			Parent = header,
+			Parent = root,
 		})
 		Utils.hoverLift(theme, root, stroke, maid)
 		maid:give(hit.MouseButton1Click:Connect(function()
-			setExpanded(not expanded)
+			setOpen(not isOpen())
 		end))
 		if config.Tooltip and ctx.tooltip then
 			ctx.tooltip:attach(hit, config.Tooltip)
@@ -282,14 +342,18 @@ return function(require)
 			end
 			refreshHeader()
 			refreshRows(false)
-			if expanded then
-				setExpanded(true)
+			if isOpen() then
+				setOpen(true)
 			end
 		end
 		function handle:SetVisible(visible)
 			root.Visible = visible and true or false
 		end
 		function handle:Destroy()
+			if popup then
+				popup.close(true)
+				popup.holder:Destroy()
+			end
 			root:Destroy()
 		end
 		return handle
