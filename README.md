@@ -11,7 +11,7 @@ groups; footer status bar.
 
 ```lua
 local Astro = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/al-hub-scripts/astro/main/Loader.lua"))()
+    "https://raw.githubusercontent.com/Al-hub-Scripts/Astro/refs/heads/main/Loader.lua"))()
 
 local Window = Astro:CreateWindow({ Title = "Astro", TitleAccent = "physics", Subtitle = "v1.0" })
 local tab    = Window:CreateTab({ Name = "Combat" })
@@ -71,7 +71,7 @@ Global search spans every tab → group → element and navigates + pulses the m
 
    ```lua
    -- Must end with a trailing slash. Files load from "<BASE_URL>src/<name>.lua".
-   local BASE_URL = "https://raw.githubusercontent.com/al-hub-scripts/astro/main/"
+   local BASE_URL = "https://raw.githubusercontent.com/Al-hub-Scripts/Astro/refs/heads/main/"
    ```
 
    - **Pin to a branch or tag** (`main`, `v1.0`, …) so consumers don't break on
